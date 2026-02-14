@@ -94,7 +94,8 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
         "- Straight lines include horizontal, vertical, and both diagonal directions.\n"
         "Goal:\n"
         "- Choose the best move for white to win the game.\n"
-        "- If there is no immediate winning move, prioritize blocking black threats.\n"
+        "- If black has 3 or 4 connected stones in a line, prioritize blocking that line "
+        "to prevent black from extending to 5.\n"
         "Output format:\n"
         "- Return ONLY JSON with keys x and y.\n"
         "- x and y must be integers in [0, 14].\n"
@@ -116,49 +117,67 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
 
     try:
         client = OpenAI(api_key=api_key)
-        resp = client.responses.create(
-            model=model,
-            input=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
+        max_illegal_retries = 5
+        retry_note = ""
 
-        text = (resp.output_text or "").strip()
-        _log(f"openai_raw_text={text[:120]!r}")
+        for attempt in range(1, max_illegal_retries + 1):
+            user_input = user + retry_note
+            resp = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_input},
+                ],
+            )
 
-        obj = _extract_json_obj(text)
-        if not obj:
-            _log("branch=fallback_random (no json parsed)")
-            return random.choice(moves)
+            text = (resp.output_text or "").strip()
+            _log(f"attempt={attempt} openai_raw_text={text[:120]!r}")
 
-        if "x" in obj and "y" in obj:
-            x, y = obj["x"], obj["y"]
-        elif "row" in obj and "col" in obj:
-            row_legacy, col_legacy = obj["row"], obj["col"]
-            if not isinstance(row_legacy, int) or not isinstance(col_legacy, int):
-                _log("branch=fallback_random (legacy row/col not int)")
+            obj = _extract_json_obj(text)
+            if not obj:
+                _log("branch=fallback_random (no json parsed)")
                 return random.choice(moves)
-            x, y = _row_col_to_xy(row_legacy, col_legacy, size=size)
-        else:
-            _log("branch=fallback_random (json missing keys)")
-            return random.choice(moves)
 
-        if not isinstance(x, int) or not isinstance(y, int):
-            _log("branch=fallback_random (x/y not int)")
-            return random.choice(moves)
+            if "x" in obj and "y" in obj:
+                x, y = obj["x"], obj["y"]
+            elif "row" in obj and "col" in obj:
+                row_legacy, col_legacy = obj["row"], obj["col"]
+                if not isinstance(row_legacy, int) or not isinstance(col_legacy, int):
+                    _log("branch=fallback_random (legacy row/col not int)")
+                    return random.choice(moves)
+                x, y = _row_col_to_xy(row_legacy, col_legacy, size=size)
+            else:
+                _log("branch=fallback_random (json missing keys)")
+                return random.choice(moves)
 
-        if x < 0 or x >= size or y < 0 or y >= size:
-            _log("branch=fallback_random (x/y out of bounds)")
-            return random.choice(moves)
+            if not isinstance(x, int) or not isinstance(y, int):
+                _log("branch=fallback_random (x/y not int)")
+                return random.choice(moves)
 
-        row, col = _xy_to_row_col(x, y, size=size)
-        if (row, col) not in moves:
-            _log("branch=fallback_random (illegal move)")
-            return random.choice(moves)
+            if x < 0 or x >= size or y < 0 or y >= size:
+                _log("branch=fallback_random (x/y out of bounds)")
+                return random.choice(moves)
 
-        _log(f"branch=openai_success move_xy=({x},{y}) move_row_col=({row},{col})")
-        return (row, col)
+            row, col = _xy_to_row_col(x, y, size=size)
+            if (row, col) not in moves:
+                if attempt < max_illegal_retries:
+                    _log(
+                        f"branch=illegal_move_retry attempt={attempt}/{max_illegal_retries} "
+                        f"move_xy=({x},{y})"
+                    )
+                    retry_note = (
+                        "\n\nYour previous move was illegal because it was not in legal_moves_xy. "
+                        "Choose a different move strictly from legal_moves_xy."
+                    )
+                    continue
+                _log(f"branch=fallback_random (illegal move after {max_illegal_retries} attempts)")
+                return random.choice(moves)
+
+            _log(f"branch=openai_success attempt={attempt} move_xy=({x},{y}) move_row_col=({row},{col})")
+            return (row, col)
+
+        _log("branch=fallback_random (retry loop exhausted)")
+        return random.choice(moves)
 
     except Exception as e:
         _log(f"branch=fallback_random (exception={type(e).__name__}: {e})")

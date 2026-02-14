@@ -37,6 +37,26 @@ def move():
 
     try:
         board = parse_board(data.get("board"))
+        winner = check_winner(board)
+        if winner == PLAYER:
+            return jsonify({
+                "board": board,
+                "status": "player_win",
+                "message": "Game already finished. You already won. Click New Game.",
+            })
+        if winner == AI:
+            return jsonify({
+                "board": board,
+                "status": "ai_win",
+                "message": "Game already finished. AI already won. Click New Game.",
+            })
+        if is_draw(board):
+            return jsonify({
+                "board": board,
+                "status": "draw",
+                "message": "Game already finished in a draw. Click New Game.",
+            })
+
         row = data.get("row")
         col = data.get("col")
         validate_move(board, row, col)
