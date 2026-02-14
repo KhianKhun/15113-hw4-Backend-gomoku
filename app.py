@@ -3,12 +3,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from game.board import empty_board, apply_move, PLAYER, AI
 from game.rules import check_winner, is_draw
 from game.validate import parse_board, validate_move
 from game.ai import choose_ai_move
-
-load_dotenv()
 
 app = Flask(__name__)
 
