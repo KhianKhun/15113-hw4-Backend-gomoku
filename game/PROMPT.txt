@@ -1,0 +1,34 @@
+For this assignment, I used Chatgpt Plus and codeX to finish it.
+
+1. I created a "Project" and talked about some concepts and significance of 
+    API, about half an hour to understand them.
+
+2. I used another conversation to talk with GPT to understand the significance 
+    and difference between Backend and Local calls
+
+# 3. I copyed all the hw4 assignment descriptions to GPT and processed a brain storm. 
+
+# 4. Before coding, we decides the approximate file contents and folder structures
+
+# 5. I re-copyed the hw4 assignment descriptions to GPT and let him generate the
+    corresponding codes for me, with model of deep thinking. The key prompt 
+    (I think): Ignore the time restriction, based on the file structure and content
+    we discussed before and the assignment description, give me the code
+
+6. I made codeX tell me the rough implement logic of each file
+
+# 7. Advance for AI operation. I designed a prompt algorithm for my AI model and 
+    let codeX give me the code with clear expressions.
+    "In the game, there should be two list, which contains the tuple. Lists represent
+    the stones are already put, one for player and the others for AI. Tuples 
+    represent the position information for each stones. In each call openAI API, 
+    you should send two lists of tuples, gomoku rules, and the definition rules 
+    for position information."
+
+8. The other things are debugging. I describe my requirments, and codeX gives me
+    updated codes.
+
+
+
+Almost time in this homework I worked for learning about how to arrange Backend
+and learn about the connection method between Frontend and Backend.
