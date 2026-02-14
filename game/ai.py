@@ -15,9 +15,31 @@ def _log(msg: str):
     if DEBUG_AI:
         print(f"[AI_DEBUG] {msg}", flush=True)
 
-def _board_to_compact_text(board: list[list[int]]) -> str:
-    # 0 empty, 1 player, 2 AI; keep it compact for tokens
-    return "\n".join(" ".join(str(x) for x in row) for row in board)
+def _row_col_to_xy(row: int, col: int, size: int = BOARD_SIZE) -> tuple[int, int]:
+    # Board row 0 is top; requested coordinate system is bottom-left origin.
+    return (col, size - 1 - row)
+
+
+def _xy_to_row_col(x: int, y: int, size: int = BOARD_SIZE) -> tuple[int, int]:
+    return (size - 1 - y, x)
+
+
+def _stone_lists_xy(board: list[list[int]]) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    black_stones: list[tuple[int, int]] = []
+    white_stones: list[tuple[int, int]] = []
+    size = len(board)
+    for row, row_vals in enumerate(board):
+        for col, val in enumerate(row_vals):
+            xy = _row_col_to_xy(row, col, size=size)
+            if val == PLAYER:
+                black_stones.append(xy)
+            elif val == AI:
+                white_stones.append(xy)
+    return black_stones, white_stones
+
+
+def _format_tuple_list(points: list[tuple[int, int]]) -> str:
+    return "[" + ", ".join(f"({x}, {y})" for x, y in points) + "]"
 
 
 def _extract_json_obj(text: str) -> Optional[dict]:
@@ -48,11 +70,6 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
         _log("branch=no_legal_moves")
         return (0, 0)
 
-    center = BOARD_SIZE // 2
-    if board[center][center] == 0:
-        _log("branch=center_heuristic")
-        return (center, center)
-
     api_key = os.environ.get("OPENAI_API_KEY", "")
     _log(f"has_key={bool(api_key)} model={os.getenv('OPENAI_MODEL','gpt-4o-mini')}")
 
@@ -61,18 +78,40 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
         return random.choice(moves)
 
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    size = len(board)
+    black_stones, white_stones = _stone_lists_xy(board)
+    legal_moves_xy = [_row_col_to_xy(r, c, size=size) for r, c in moves]
+
     system = (
-        "You are an AI opponent playing Gomoku (five-in-a-row) on a 15x15 board.\n"
-        "Board encoding:\n"
-        "  0 = empty, 1 = human (black), 2 = AI (white)\n"
-        "Return ONLY valid JSON with keys row and col (0-14), choosing an empty cell.\n"
-        "Example: {\"row\": 7, \"col\": 7}\n"
+        "You are the white player AI in Gomoku on a 15x15 board.\n"
+        "Coordinate system:\n"
+        "- A stone position is a tuple (x, y).\n"
+        "- Origin is bottom-left, so bottom-left is (0, 0).\n"
+        "- x increases to the right, y increases upward.\n"
+        "Game rules:\n"
+        "- Black and white alternate turns.\n"
+        "- A player wins by making 5 consecutive stones in one straight line.\n"
+        "- Straight lines include horizontal, vertical, and both diagonal directions.\n"
+        "Goal:\n"
+        "- Choose the best move for white to win the game.\n"
+        "- If there is no immediate winning move, prioritize blocking black threats.\n"
+        "Output format:\n"
+        "- Return ONLY JSON with keys x and y.\n"
+        "- x and y must be integers in [0, 14].\n"
+        "- The move must be one of the provided legal empty moves.\n"
+        "- Example: {\"x\": 7, \"y\": 7}\n"
         "Do not include any extra text."
     )
     user = (
-        "Current board (15 rows of 15 ints):\n"
-        f"{_board_to_compact_text(board)}\n\n"
-        "It's AI's turn (2). Pick a good move."
+        "Current game state:\n"
+        f"black_stones = {_format_tuple_list(black_stones)}\n"
+        f"white_stones = {_format_tuple_list(white_stones)}\n"
+        f"legal_moves_xy = {_format_tuple_list(legal_moves_xy)}\n\n"
+        "Meaning:\n"
+        "- black_stones and white_stones are Python lists.\n"
+        "- Each item is a tuple (x, y) of an already placed stone.\n"
+        "- legal_moves_xy lists all currently legal empty positions.\n\n"
+        "Now choose exactly one move for white."
     )
 
     try:
@@ -93,20 +132,32 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
             _log("branch=fallback_random (no json parsed)")
             return random.choice(moves)
 
-        if "row" not in obj or "col" not in obj:
+        if "x" in obj and "y" in obj:
+            x, y = obj["x"], obj["y"]
+        elif "row" in obj and "col" in obj:
+            row_legacy, col_legacy = obj["row"], obj["col"]
+            if not isinstance(row_legacy, int) or not isinstance(col_legacy, int):
+                _log("branch=fallback_random (legacy row/col not int)")
+                return random.choice(moves)
+            x, y = _row_col_to_xy(row_legacy, col_legacy, size=size)
+        else:
             _log("branch=fallback_random (json missing keys)")
             return random.choice(moves)
 
-        row, col = obj["row"], obj["col"]
-        if not isinstance(row, int) or not isinstance(col, int):
-            _log("branch=fallback_random (row/col not int)")
+        if not isinstance(x, int) or not isinstance(y, int):
+            _log("branch=fallback_random (x/y not int)")
             return random.choice(moves)
 
+        if x < 0 or x >= size or y < 0 or y >= size:
+            _log("branch=fallback_random (x/y out of bounds)")
+            return random.choice(moves)
+
+        row, col = _xy_to_row_col(x, y, size=size)
         if (row, col) not in moves:
             _log("branch=fallback_random (illegal move)")
             return random.choice(moves)
 
-        _log("branch=openai_success")
+        _log(f"branch=openai_success move_xy=({x},{y}) move_row_col=({row},{col})")
         return (row, col)
 
     except Exception as e:
