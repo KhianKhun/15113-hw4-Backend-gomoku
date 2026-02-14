@@ -80,7 +80,8 @@ def move():
             })
 
         # AI move
-        ai_r, ai_c = choose_ai_move(board)
+        ai_r, ai_c, saw_illegal_move = choose_ai_move(board)
+        ai_warning = "AI gives an illegal move." if saw_illegal_move else None
         validate_move(board, ai_r, ai_c)
         apply_move(board, ai_r, ai_c, AI)
 
@@ -89,6 +90,7 @@ def move():
             return jsonify({
                 "board": board,
                 "ai_move": [ai_r, ai_c],
+                "ai_warning": ai_warning,
                 "status": "ai_win",
                 "message": "AI wins.",
             })
@@ -97,6 +99,7 @@ def move():
             return jsonify({
                 "board": board,
                 "ai_move": [ai_r, ai_c],
+                "ai_warning": ai_warning,
                 "status": "draw",
                 "message": "Draw.",
             })
@@ -104,6 +107,7 @@ def move():
         return jsonify({
             "board": board,
             "ai_move": [ai_r, ai_c],
+            "ai_warning": ai_warning,
             "status": "ongoing",
             "message": "Your turn.",
         })

@@ -59,23 +59,24 @@ def _extract_json_obj(text: str) -> Optional[dict]:
         return None
 
 
-def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
+def choose_ai_move(board: list[list[int]]) -> tuple[int, int, bool]:
     """
-    Returns (row, col) for AI move.
+    Returns (row, col, saw_illegal_move) for AI move.
     Falls back to a random legal move if API fails or outputs invalid JSON.
     """
     moves = available_moves(board)
     _log(f"has_moves={bool(moves)}")
     if not moves:
         _log("branch=no_legal_moves")
-        return (0, 0)
+        return (0, 0, False)
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     _log(f"has_key={bool(api_key)} model={os.getenv('OPENAI_MODEL','gpt-4o-mini')}")
 
     if not api_key:
         _log("branch=fallback_random (missing key)")
-        return random.choice(moves)
+        r, c = random.choice(moves)
+        return (r, c, False)
 
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     size = len(board)
@@ -115,9 +116,10 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
         "Now choose exactly one move for white."
     )
 
+    saw_illegal_move = False
     try:
         client = OpenAI(api_key=api_key)
-        max_illegal_retries = 5
+        max_illegal_retries = 10
         retry_note = ""
 
         for attempt in range(1, max_illegal_retries + 1):
@@ -136,7 +138,8 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
             obj = _extract_json_obj(text)
             if not obj:
                 _log("branch=fallback_random (no json parsed)")
-                return random.choice(moves)
+                r, c = random.choice(moves)
+                return (r, c, saw_illegal_move)
 
             if "x" in obj and "y" in obj:
                 x, y = obj["x"], obj["y"]
@@ -144,22 +147,27 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
                 row_legacy, col_legacy = obj["row"], obj["col"]
                 if not isinstance(row_legacy, int) or not isinstance(col_legacy, int):
                     _log("branch=fallback_random (legacy row/col not int)")
-                    return random.choice(moves)
+                    r, c = random.choice(moves)
+                    return (r, c, saw_illegal_move)
                 x, y = _row_col_to_xy(row_legacy, col_legacy, size=size)
             else:
                 _log("branch=fallback_random (json missing keys)")
-                return random.choice(moves)
+                r, c = random.choice(moves)
+                return (r, c, saw_illegal_move)
 
             if not isinstance(x, int) or not isinstance(y, int):
                 _log("branch=fallback_random (x/y not int)")
-                return random.choice(moves)
+                r, c = random.choice(moves)
+                return (r, c, saw_illegal_move)
 
             if x < 0 or x >= size or y < 0 or y >= size:
                 _log("branch=fallback_random (x/y out of bounds)")
-                return random.choice(moves)
+                r, c = random.choice(moves)
+                return (r, c, saw_illegal_move)
 
             row, col = _xy_to_row_col(x, y, size=size)
             if (row, col) not in moves:
+                saw_illegal_move = True
                 if attempt < max_illegal_retries:
                     _log(
                         f"branch=illegal_move_retry attempt={attempt}/{max_illegal_retries} "
@@ -171,17 +179,19 @@ def choose_ai_move(board: list[list[int]]) -> tuple[int, int]:
                     )
                     continue
                 _log(f"branch=fallback_random (illegal move after {max_illegal_retries} attempts)")
-                return random.choice(moves)
+                r, c = random.choice(moves)
+                return (r, c, saw_illegal_move)
 
             _log(f"branch=openai_success attempt={attempt} move_xy=({x},{y}) move_row_col=({row},{col})")
-            return (row, col)
+            return (row, col, saw_illegal_move)
 
         _log("branch=fallback_random (retry loop exhausted)")
-        return random.choice(moves)
+        r, c = random.choice(moves)
+        return (r, c, saw_illegal_move)
 
     except Exception as e:
         _log(f"branch=fallback_random (exception={type(e).__name__}: {e})")
         if DEBUG_AI:
             traceback.print_exc()
-        return random.choice(moves)
-
+        r, c = random.choice(moves)
+        return (r, c, saw_illegal_move)
